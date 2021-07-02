@@ -272,8 +272,12 @@ export class ProductVariantService {
         const effectiveOutOfStockThreshold = variant.useGlobalOutOfStockThreshold
             ? outOfStockThreshold
             : variant.outOfStockThreshold;
-
-        return variant.stockOnHand - variant.stockAllocated - effectiveOutOfStockThreshold;
+        let stockOnHold = variant?.customFields
+            ? Object.entries(variant.customFields)
+                  .filter(a => a[0] === 'stockOnHold')
+                  .map(a => a[1])[0]
+            : 0;
+        return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
     }
 
     /**

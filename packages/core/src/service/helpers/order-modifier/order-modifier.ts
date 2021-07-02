@@ -71,12 +71,8 @@ export class OrderModifier {
         quantity: number,
         existingQuantity = 0,
     ) {
-        let correctedQuantity = quantity + existingQuantity;
         const saleableStockLevel = await this.productVariantService.getSaleableStockLevel(ctx, variant);
-        if (saleableStockLevel < correctedQuantity) {
-            correctedQuantity = Math.max(saleableStockLevel - existingQuantity, 0);
-        }
-        return correctedQuantity;
+        return existingQuantity + Math.min(quantity, saleableStockLevel);
     }
 
     async getExistingOrderLine(

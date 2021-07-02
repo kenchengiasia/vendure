@@ -385,12 +385,8 @@ export class OrderService {
             return validationError;
         }
         const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, productVariantId);
-        const correctedQuantity = await this.orderModifier.constrainQuantityToSaleable(
-            ctx,
-            variant,
-            quantity,
-            existingOrderLine?.quantity,
-        );
+        const correctedQuantity = await this.stockMovementService.holdStock(ctx, productVariantId, quantity);
+
         if (correctedQuantity === 0) {
             return new InsufficientStockError(correctedQuantity, order);
         }
@@ -400,7 +396,11 @@ export class OrderService {
             productVariantId,
             customFields,
         );
-        await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, correctedQuantity, order);
+        let totalQuantity = correctedQuantity;
+        if (existingOrderLine?.quantity) {
+            totalQuantity = totalQuantity + existingOrderLine?.quantity;
+        }
+        await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, totalQuantity, order);
         const quantityWasAdjustedDown = correctedQuantity < quantity;
         const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
         if (quantityWasAdjustedDown) {
@@ -439,23 +439,47 @@ export class OrderService {
                 orderLine,
             );
         }
-        const correctedQuantity = await this.orderModifier.constrainQuantityToSaleable(
-            ctx,
-            orderLine.productVariant,
-            quantity,
-        );
-        if (correctedQuantity === 0) {
-            order.lines = order.lines.filter(l => !idsAreEqual(l.id, orderLine.id));
-            await this.connection.getRepository(ctx, OrderLine).remove(orderLine);
-        } else {
-            await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, quantity, order);
-        }
-        const quantityWasAdjustedDown = correctedQuantity < quantity;
-        const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
-        if (quantityWasAdjustedDown) {
-            return new InsufficientStockError(correctedQuantity, updatedOrder);
-        } else {
+        if (orderLine.quantity === quantity) {
+            const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
             return updatedOrder;
+        }
+
+        if (orderLine.quantity > quantity) {
+            // Reduce quantity
+            let reduceQty = orderLine.quantity - quantity;
+            const actualReduceQuantity = await this.stockMovementService.releaseStock(
+                ctx,
+                orderLine.productVariant.id,
+                orderLine.quantity - quantity,
+            );
+            if (quantity === 0) {
+                order.lines = order.lines.filter(l => !idsAreEqual(l.id, orderLine.id));
+                await this.connection.getRepository(ctx, OrderLine).remove(orderLine);
+            } else {
+                await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, quantity, order);
+            }
+            const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
+
+            return updatedOrder;
+        } else {
+            // Add quantity
+            const addQuantity = quantity - orderLine.quantity;
+            const actualAddQuantity = await this.stockMovementService.holdStock(
+                ctx,
+                orderLine.productVariant.id,
+                addQuantity,
+            );
+            if (actualAddQuantity === 0) {
+                return new InsufficientStockError(actualAddQuantity, order);
+            }
+            await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, quantity, order);
+            const quantityWasAdjustedDown = actualAddQuantity < addQuantity;
+            const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
+            if (quantityWasAdjustedDown) {
+                return new InsufficientStockError(actualAddQuantity, updatedOrder);
+            } else {
+                return updatedOrder;
+            }
         }
     }
 
@@ -472,7 +496,10 @@ export class OrderService {
         const orderLine = this.getOrderLineOrThrow(order, orderLineId);
         order.lines = order.lines.filter(line => !idsAreEqual(line.id, orderLineId));
         const updatedOrder = await this.applyPriceAdjustments(ctx, order);
+        let orderLineQty = orderLine.quantity;
+        let variantId = orderLine.productVariant.id;
         await this.connection.getRepository(ctx, OrderLine).remove(orderLine);
+        await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
         return updatedOrder;
     }
 
@@ -486,6 +513,11 @@ export class OrderService {
             return validationError;
         }
         await this.connection.getRepository(ctx, OrderLine).remove(order.lines);
+        for (let orderLine of order.lines) {
+            let orderLineQty = orderLine.quantity;
+            let variantId = orderLine.productVariant.id;
+            await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
+        }
         order.lines = [];
         const updatedOrder = await this.applyPriceAdjustments(ctx, order);
         return updatedOrder;

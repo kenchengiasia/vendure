@@ -19,9 +19,7 @@ import { StockAdjustment } from '../../entity/stock-movement/stock-adjustment.en
 import { StockMovement } from '../../entity/stock-movement/stock-movement.entity';
 import { ListQueryBuilder } from '../helpers/list-query-builder/list-query-builder';
 import { TransactionalConnection } from '../transaction/transactional-connection';
-
 import { GlobalSettingsService } from './global-settings.service';
-
 @Injectable()
 export class StockMovementService {
     shippingEligibilityCheckers: ShippingEligibilityChecker[];
@@ -93,6 +91,64 @@ export class StockMovementService {
             }
         }
         return this.connection.getRepository(ctx, Allocation).save(allocations);
+    }
+
+    /**
+     * @description
+     * Returns the number of saleable units of the ProductVariant, i.e. how many are available
+     * for purchase by Customers.
+     */
+    async getSaleableStockLevel(ctx: RequestContext, variant: ProductVariant): Promise<number> {
+        // TODO: Use caching (RequestContextCacheService) to reduce DB calls
+        const { outOfStockThreshold, trackInventory } = await this.globalSettingsService.getSettings(ctx);
+        const inventoryNotTracked =
+            variant.trackInventory === GlobalFlag.FALSE ||
+            (variant.trackInventory === GlobalFlag.INHERIT && trackInventory === false);
+        if (inventoryNotTracked) {
+            return Number.MAX_SAFE_INTEGER;
+        }
+
+        const effectiveOutOfStockThreshold = variant.useGlobalOutOfStockThreshold
+            ? outOfStockThreshold
+            : variant.outOfStockThreshold;
+        let stockOnHold = variant?.customFields
+            ? Object.entries(variant.customFields)
+                  .filter(a => a[0] === 'stockOnHold')
+                  .map(a => a[1])[0]
+            : 0;
+        return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
+    }
+
+    async holdStock(ctx: RequestContext, id: ID, holdQty: number): Promise<number> {
+        const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, id);
+        const existingValue = variant?.customFields
+            ? Object.entries(variant.customFields)
+                  .filter(a => a[0] === 'stockOnHold')
+                  .map(a => a[1])[0]
+            : 0;
+        const saleableStockLevel = await this.getSaleableStockLevel(ctx, variant);
+        const actualHoldQty = Math.min(holdQty, saleableStockLevel);
+        if (actualHoldQty !== 0) {
+            variant.customFields = { stockOnHold: existingValue + actualHoldQty };
+            await this.connection.getRepository(ctx, ProductVariant).save(variant, { reload: true });
+        }
+        return actualHoldQty;
+    }
+
+    async releaseStock(ctx: RequestContext, id: ID, releasedQty: number): Promise<number> {
+        const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, id);
+        const currentStockOnHold = variant?.customFields
+            ? Object.entries(variant.customFields)
+                  .filter(a => a[0] === 'stockOnHold')
+                  .map(a => a[1])[0]
+            : 0;
+        if (releasedQty > currentStockOnHold) {
+            variant.customFields = { stockOnHold: 0 };
+        } else {
+            variant.customFields = { stockOnHold: currentStockOnHold - releasedQty };
+        }
+        await this.connection.getRepository(ctx, ProductVariant).save(variant, { reload: true });
+        return releasedQty;
     }
 
     async createSalesForOrder(ctx: RequestContext, orderItems: OrderItem[]): Promise<Sale[]> {
