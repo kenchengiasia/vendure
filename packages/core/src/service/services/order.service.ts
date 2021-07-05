@@ -384,9 +384,23 @@ export class OrderService {
         if (validationError) {
             return validationError;
         }
-        const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, productVariantId);
+        const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, productVariantId, {
+            relations: ['product'],
+            where: {
+                enabled: true,
+                deletedAt: null,
+            },
+        });
+        if (variant.product.enabled === false) {
+            throw new EntityNotFoundError('ProductVariant', productVariantId);
+        }
         const correctedQuantity = await this.stockMovementService.holdStock(ctx, productVariantId, quantity);
-
+        // const correctedQuantity = await this.orderModifier.constrainQuantityToSaleable(
+        //     ctx,
+        //     variant,
+        //     quantity,
+        //     existingOrderLine?.quantity,
+        // );
         if (correctedQuantity === 0) {
             return new InsufficientStockError(correctedQuantity, order);
         }
