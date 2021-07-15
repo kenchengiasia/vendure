@@ -89,18 +89,19 @@ export class ExternalAuthenticationService {
             emailAddress: string;
             firstName?: string;
             lastName?: string;
+            photoUrl?: string;
         },
     ): Promise<User> {
         let user: User;
 
-        const existingUser = await this.findExistingCustomerUserByEmailAddress(ctx, config.emailAddress);
+        const existingUser = await this.findCustomerUser(ctx, config.strategy, config.externalIdentifier);
 
         if (existingUser) {
             user = existingUser;
         } else {
             const customerRole = await this.roleService.getCustomerRole();
             user = new User({
-                identifier: config.emailAddress,
+                identifier: config.externalIdentifier ?? config.emailAddress,
                 roles: [customerRole],
                 verified: config.verified || false,
                 authenticationMethods: [],
@@ -126,6 +127,9 @@ export class ExternalAuthenticationService {
                 firstName: config.firstName,
                 lastName: config.lastName,
                 user: savedUser,
+                customFields: {
+                    photoUrl: config.photoUrl,
+                },
             });
         }
         this.channelService.assignToCurrentChannel(customer, ctx);
