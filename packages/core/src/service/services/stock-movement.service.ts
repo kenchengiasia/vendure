@@ -3,7 +3,7 @@ import { GlobalFlag, StockMovementListOptions } from '@vendure/common/lib/genera
 import { ID, PaginatedList } from '@vendure/common/lib/shared-types';
 
 import { RequestContext } from '../../api/common/request-context';
-import { InternalServerError } from '../../common/error/errors';
+import { EntityNotFoundError, InternalServerError } from '../../common/error/errors';
 import { ShippingCalculator } from '../../config/shipping-method/shipping-calculator';
 import { ShippingEligibilityChecker } from '../../config/shipping-method/shipping-eligibility-checker';
 import { OrderItem } from '../../entity/order-item/order-item.entity';
@@ -21,6 +21,7 @@ import { EventBus } from '../../event-bus/event-bus';
 import { StockMovementEvent } from '../../event-bus/events/stock-movement-event';
 import { ListQueryBuilder } from '../helpers/list-query-builder/list-query-builder';
 import { TransactionalConnection } from '../transaction/transactional-connection';
+
 import { GlobalSettingsService } from './global-settings.service';
 @Injectable()
 export class StockMovementService {
@@ -121,7 +122,7 @@ export class StockMovementService {
         const effectiveOutOfStockThreshold = variant.useGlobalOutOfStockThreshold
             ? outOfStockThreshold
             : variant.outOfStockThreshold;
-        let stockOnHold = variant?.customFields
+        const stockOnHold = variant?.customFields
             ? Object.entries(variant.customFields)
                   .filter(a => a[0] === 'stockOnHold')
                   .map(a => a[1])[0]
@@ -129,8 +130,28 @@ export class StockMovementService {
         return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
     }
 
+    async getProductVariantForUpdate(ctx: RequestContext, id: ID): Promise<ProductVariant> {
+        const variant = await this.connection
+            .getRepository(ctx, ProductVariant)
+            .createQueryBuilder('productvariant')
+            .setLock('pessimistic_write')
+            .where('productvariant.id = :id', { id })
+            .getOne();
+        if (!variant) {
+            throw new EntityNotFoundError('ProductVariant', id);
+        }
+        return variant;
+    }
+
     async holdStock(ctx: RequestContext, id: ID, holdQty: number): Promise<number> {
-        const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, id);
+        const { trackInventory } = await this.globalSettingsService.getSettings(ctx);
+        const variant = await this.getProductVariantForUpdate(ctx, id);
+
+        const inventoryNotTracked =
+            variant.trackInventory === GlobalFlag.FALSE ||
+            (variant.trackInventory === GlobalFlag.INHERIT && trackInventory === false);
+        if (inventoryNotTracked) return holdQty;
+
         const existingValue = variant?.customFields
             ? Object.entries(variant.customFields)
                   .filter(a => a[0] === 'stockOnHold')
@@ -146,7 +167,14 @@ export class StockMovementService {
     }
 
     async releaseStock(ctx: RequestContext, id: ID, releasedQty: number): Promise<number> {
-        const variant = await this.connection.getEntityOrThrow(ctx, ProductVariant, id);
+        const { trackInventory } = await this.globalSettingsService.getSettings(ctx);
+
+        const variant = await this.getProductVariantForUpdate(ctx, id);
+        const inventoryNotTracked =
+            variant.trackInventory === GlobalFlag.FALSE ||
+            (variant.trackInventory === GlobalFlag.INHERIT && trackInventory === false);
+        if (inventoryNotTracked) return releasedQty;
+
         const currentStockOnHold = variant?.customFields
             ? Object.entries(variant.customFields)
                   .filter(a => a[0] === 'stockOnHold')
@@ -192,6 +220,7 @@ export class StockMovementService {
             if (this.trackInventoryForVariant(productVariant, globalTrackInventory)) {
                 productVariant.stockOnHand -= lineRow.items.length;
                 productVariant.stockAllocated -= lineRow.items.length;
+                await this.releaseStock(ctx, productVariant.id, lineRow.items.length);
                 await this.connection
                     .getRepository(ctx, ProductVariant)
                     .save(productVariant, { reload: false });

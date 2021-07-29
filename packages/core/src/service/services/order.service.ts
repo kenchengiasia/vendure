@@ -460,7 +460,7 @@ export class OrderService {
 
         if (orderLine.quantity > quantity) {
             // Reduce quantity
-            let reduceQty = orderLine.quantity - quantity;
+            const reduceQty = orderLine.quantity - quantity;
             const actualReduceQuantity = await this.stockMovementService.releaseStock(
                 ctx,
                 orderLine.productVariant.id,
@@ -510,8 +510,8 @@ export class OrderService {
         const orderLine = this.getOrderLineOrThrow(order, orderLineId);
         order.lines = order.lines.filter(line => !idsAreEqual(line.id, orderLineId));
         const updatedOrder = await this.applyPriceAdjustments(ctx, order);
-        let orderLineQty = orderLine.quantity;
-        let variantId = orderLine.productVariant.id;
+        const orderLineQty = orderLine.quantity;
+        const variantId = orderLine.productVariant.id;
         await this.connection.getRepository(ctx, OrderLine).remove(orderLine);
         await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
         return updatedOrder;
@@ -527,9 +527,9 @@ export class OrderService {
             return validationError;
         }
         await this.connection.getRepository(ctx, OrderLine).remove(order.lines);
-        for (let orderLine of order.lines) {
-            let orderLineQty = orderLine.quantity;
-            let variantId = orderLine.productVariant.id;
+        for (const orderLine of order.lines) {
+            const orderLineQty = orderLine.quantity;
+            const variantId = orderLine.productVariant.id;
             await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
         }
         order.lines = [];
@@ -1039,6 +1039,45 @@ export class OrderService {
                 ? await this.cancelOrderByOrderLines(ctx, input, input.lines)
                 : await this.cancelOrderById(ctx, input);
 
+        if (cancelResult) {
+            let ordersAndItems;
+            if (input.lines) {
+                if (input.lines.length === 0 || summate(input.lines, 'quantity') === 0) {
+                    return new EmptyOrderLineSelectionError();
+                }
+                ordersAndItems = await this.getOrdersAndItemsFromLines(ctx, input.lines, i => !i.cancelled);
+            } else {
+                const dbOrder = await this.getOrderOrThrow(ctx, input.orderId);
+                const lines: OrderLineInput[] = dbOrder.lines.map(l => ({
+                    orderLineId: l.id,
+                    quantity: l.quantity,
+                }));
+                ordersAndItems = await this.getOrdersAndItemsFromLines(ctx, lines, i => !i.cancelled);
+            }
+            if (!ordersAndItems) {
+                return new QuantityTooGreatError();
+            }
+            if (1 < ordersAndItems.orders.length) {
+                return new MultipleOrderError();
+            }
+            const { items } = ordersAndItems;
+            const nonFulFillItems = items.filter(i => !i.fulfillment);
+            const nonRefundItems = nonFulFillItems.filter(i => !i.refund);
+            const orderItems = await this.connection.getRepository(ctx, OrderItem).findByIds(
+                nonRefundItems.map(i => i.id),
+                {
+                    relations: ['line', 'line.productVariant'],
+                },
+            );
+            const releaseItems = new Map<ID, number>();
+            for (const item of orderItems) {
+                const value = releaseItems.get(item.line.productVariant.id) ?? 0;
+                releaseItems.set(item.line.productVariant.id, value + 1);
+            }
+            for (const [key, value] of releaseItems) {
+                const actualReduceQuantity = await this.stockMovementService.releaseStock(ctx, key, value);
+            }
+        }
         if (isGraphQlErrorResult(cancelResult)) {
             return cancelResult;
         } else {

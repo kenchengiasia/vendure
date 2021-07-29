@@ -4314,6 +4314,53 @@
   resolved "https://registry.npmjs.org/@ungap/global-this/-/global-this-0.4.4.tgz#8a1b2cfcd3e26e079a847daba879308c924dd695"
   integrity sha512-mHkm6FvepJECMNthFuIgpAEFmPOk71UyXuIxYfjytvFTnSDBIz7jmViO+LfHI/AjrazWije0PnSP3+/NlwzqtA==
 
+"@vendure/common@^1.1.2":
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/@vendure/common/-/common-1.1.2.tgz#847d1d8f874255afd7fefa9985af9df005f03dcd"
+  integrity sha512-18LsWuJ6nP0lFjI94+MVyW7W6ib9+JF6qosnDnJVD7GQ2ylgagKrSMsCusHYmV/kvcZlZNFhgFnQIqZElSuGCw==
+
+"@vendure/core@^1.1.0":
+  version "1.1.2"
+  resolved "https://registry.yarnpkg.com/@vendure/core/-/core-1.1.2.tgz#528f9d48a6af59c99f6a17826c0239944ed76827"
+  integrity sha512-ii5XVEtujsrm6pEXX+DeBcHCvY8ttj9YEW7uR4SwBq9akKLGDVhECnNMstSsVMIhn2jf/rQkZjDVTfeG/bre1g==
+  dependencies:
+    "@graphql-tools/stitch" "^7.5.3"
+    "@nestjs/common" "7.6.17"
+    "@nestjs/core" "7.6.17"
+    "@nestjs/graphql" "7.10.6"
+    "@nestjs/platform-express" "7.6.17"
+    "@nestjs/terminus" "7.2.0"
+    "@nestjs/testing" "7.6.17"
+    "@nestjs/typeorm" "7.1.5"
+    "@types/fs-extra" "^9.0.1"
+    "@vendure/common" "^1.1.2"
+    apollo-server-express "2.24.1"
+    bcrypt "^5.0.0"
+    body-parser "^1.19.0"
+    chalk "^4.1.0"
+    commander "^7.1.0"
+    cookie-session "^2.0.0-rc.1"
+    csv-parse "^4.12.0"
+    express "^4.17.1"
+    fs-extra "^9.0.1"
+    graphql "15.5.0"
+    graphql-scalars "^1.10.0"
+    graphql-tag "^2.12.4"
+    graphql-upload "^12.0.0"
+    http-proxy-middleware "^1.0.5"
+    i18next "^19.8.1"
+    i18next-express-middleware "^2.0.0"
+    i18next-fs-backend "^1.1.1"
+    i18next-icu "^1.4.2"
+    image-size "^0.9.1"
+    mime-types "^2.1.27"
+    ms "^2.1.2"
+    nanoid "^3.1.23"
+    progress "^2.0.3"
+    reflect-metadata "^0.1.13"
+    rxjs "^6.6.3"
+    typeorm "0.2.31"
+
 "@webassemblyjs/ast@1.9.0":
   version "1.9.0"
   resolved "https://registry.npmjs.org/@webassemblyjs/ast/-/ast-1.9.0.tgz#bd850604b4042459a5a41cd7d338cbed695ed964"
