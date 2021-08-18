@@ -416,8 +416,12 @@ export class OrderService {
             }
         }
 
-        let { collectDayFrom, collectPeriod, collectTimeFrom, collectTimeTo } =
-            this.getProductVariantCustomFields(variant);
+        let {
+            collectDayFrom,
+            collectPeriod,
+            collectTimeFrom,
+            collectTimeTo,
+        } = this.getProductVariantCustomFields(variant);
         if (!collectDayFrom) {
             collectDayFrom = moment(new Date()).format('YYYYMMDD');
         }
@@ -1168,45 +1172,6 @@ export class OrderService {
                 ? await this.cancelOrderByOrderLines(ctx, input, input.lines)
                 : await this.cancelOrderById(ctx, input);
 
-        if (cancelResult) {
-            let ordersAndItems;
-            if (input.lines) {
-                if (input.lines.length === 0 || summate(input.lines, 'quantity') === 0) {
-                    return new EmptyOrderLineSelectionError();
-                }
-                ordersAndItems = await this.getOrdersAndItemsFromLines(ctx, input.lines, i => !i.cancelled);
-            } else {
-                const dbOrder = await this.getOrderOrThrow(ctx, input.orderId);
-                const lines: OrderLineInput[] = dbOrder.lines.map(l => ({
-                    orderLineId: l.id,
-                    quantity: l.quantity,
-                }));
-                ordersAndItems = await this.getOrdersAndItemsFromLines(ctx, lines, i => !i.cancelled);
-            }
-            if (!ordersAndItems) {
-                return new QuantityTooGreatError();
-            }
-            if (1 < ordersAndItems.orders.length) {
-                return new MultipleOrderError();
-            }
-            const { items } = ordersAndItems;
-            const nonFulFillItems = items.filter(i => !i.fulfillment);
-            const nonRefundItems = nonFulFillItems.filter(i => !i.refund);
-            const orderItems = await this.connection.getRepository(ctx, OrderItem).findByIds(
-                nonRefundItems.map(i => i.id),
-                {
-                    relations: ['line', 'line.productVariant'],
-                },
-            );
-            const releaseItems = new Map<ID, number>();
-            for (const item of orderItems) {
-                const value = releaseItems.get(item.line.productVariant.id) ?? 0;
-                releaseItems.set(item.line.productVariant.id, value + 1);
-            }
-            for (const [key, value] of releaseItems) {
-                const actualReduceQuantity = await this.stockMovementService.releaseStock(ctx, key, value);
-            }
-        }
         if (isGraphQlErrorResult(cancelResult)) {
             return cancelResult;
         } else {
@@ -1224,7 +1189,15 @@ export class OrderService {
 
     private async cancelOrderById(ctx: RequestContext, input: CancelOrderInput) {
         const order = await this.getOrderOrThrow(ctx, input.orderId);
-        if (order.state === 'AddingItems' || order.state === 'ArrangingPayment') {
+        if (
+            order.state === 'AddingItems' ||
+            order.state === 'ArrangingPayment' ||
+            order.state === ('ValidatingPayment' as any)
+        ) {
+            for (const line of order.lines) {
+                const items = line.items.filter(i => !i.cancelled);
+                this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+            }
             return true;
         } else {
             const lines: OrderLineInput[] = order.lines.map(l => ({
@@ -1314,7 +1287,8 @@ export class OrderService {
         if (
             order.state === 'AddingItems' ||
             order.state === 'ArrangingPayment' ||
-            order.state === 'PaymentAuthorized'
+            order.state === 'PaymentAuthorized' ||
+            order.state === ('ValidatingPayment' as any)
         ) {
             return new RefundOrderStateError(order.state);
         }
@@ -1324,8 +1298,20 @@ export class OrderService {
         if (alreadyRefunded) {
             return new AlreadyRefundedError(alreadyRefunded.refundId as string);
         }
-
-        return await this.paymentService.createRefund(ctx, input, order, items, payment);
+        const result = await this.paymentService.createRefund(ctx, input, order, items, payment);
+        if (result instanceof Refund) {
+            const ordersAndItems = await this.getOrdersAndItemsFromLines(
+                ctx,
+                input.lines,
+                i => !i.fulfillment && !i.cancelled,
+            );
+            if (!ordersAndItems) {
+                return new QuantityTooGreatError();
+            }
+            const { items } = ordersAndItems;
+            this.stockMovementService.createReleasesForOrderItems(ctx, items);
+        }
+        return result;
     }
 
     async settleRefund(ctx: RequestContext, input: SettleRefundInput): Promise<Refund> {
@@ -1548,8 +1534,10 @@ export class OrderService {
         updatedOrderLine?: OrderLine,
     ): Promise<Order> {
         if (updatedOrderLine) {
-            const { orderItemPriceCalculationStrategy, changedPriceHandlingStrategy } =
-                this.configService.orderOptions;
+            const {
+                orderItemPriceCalculationStrategy,
+                changedPriceHandlingStrategy,
+            } = this.configService.orderOptions;
             let priceResult = await orderItemPriceCalculationStrategy.calculateUnitPrice(
                 ctx,
                 updatedOrderLine.productVariant,

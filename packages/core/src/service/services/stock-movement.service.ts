@@ -92,6 +92,21 @@ export class StockMovementService {
 
             if (this.trackInventoryForVariant(productVariant, globalTrackInventory)) {
                 productVariant.stockAllocated += line.quantity;
+                const stockOnHold = productVariant?.customFields
+                    ? Object.entries(productVariant.customFields)
+                          .filter(a => a[0] === 'stockOnHold')
+                          .map(a => a[1])[0]
+                    : 0;
+                let localStockOnHold;
+                if (line.quantity > stockOnHold) {
+                    localStockOnHold = 0;
+                } else {
+                    localStockOnHold = stockOnHold - line.quantity;
+                }
+                productVariant.customFields = {
+                    ...productVariant.customFields,
+                    stockOnHold: localStockOnHold,
+                };
                 await this.connection
                     .getRepository(ctx, ProductVariant)
                     .save(productVariant, { reload: false });
@@ -219,8 +234,11 @@ export class StockMovementService {
 
             if (this.trackInventoryForVariant(productVariant, globalTrackInventory)) {
                 productVariant.stockOnHand -= lineRow.items.length;
-                productVariant.stockAllocated -= lineRow.items.length;
-                await this.releaseStock(ctx, productVariant.id, lineRow.items.length);
+                if (lineRow.items.length > productVariant.stockAllocated) {
+                    productVariant.stockAllocated = 0;
+                } else {
+                    productVariant.stockAllocated -= lineRow.items.length;
+                }
                 await this.connection
                     .getRepository(ctx, ProductVariant)
                     .save(productVariant, { reload: false });
