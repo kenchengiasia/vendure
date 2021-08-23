@@ -3,7 +3,7 @@ import { ID } from '@vendure/common/lib/shared-types';
 import crypto from 'crypto';
 import ms from 'ms';
 import { EntitySubscriberInterface, InsertEvent, RemoveEvent, UpdateEvent } from 'typeorm';
-
+import { ApiType } from '../../api/common/get-api-type';
 import { RequestContext } from '../../api/common/request-context';
 import { ConfigService } from '../../config/config.service';
 import { CachedSession, SessionCacheStrategy } from '../../config/session-cache/session-cache-strategy';
@@ -73,13 +73,17 @@ export class SessionService implements EntitySubscriberInterface {
                 : undefined;
         const existingOrder = await this.orderService.getActiveOrderForUser(ctx, user.id);
         const activeOrder = await this.orderService.mergeOrders(ctx, user, guestOrder, existingOrder);
+        // Hardcode to give 1 year expires when login from admin
         const authenticatedSession = await this.connection.getRepository(ctx, AuthenticatedSession).save(
             new AuthenticatedSession({
                 token,
                 user,
                 activeOrder,
                 authenticationStrategy: authenticationStrategyName,
-                expires: this.getExpiryDate(this.sessionDurationInMs),
+                expires:
+                    ctx.apiType === 'admin'
+                        ? this.getExpiryDate(ms('1y'))
+                        : this.getExpiryDate(this.sessionDurationInMs),
                 invalidated: false,
             }),
         );
