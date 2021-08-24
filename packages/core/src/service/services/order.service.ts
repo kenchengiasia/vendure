@@ -493,29 +493,25 @@ export class OrderService {
                 }
             }
         }
-        const correctedQuantity = await this.stockMovementService.holdStock(ctx, productVariantId, quantity);
-
-        if (correctedQuantity === 0) {
-            return new InsufficientStockError(correctedQuantity, order);
+        const saleableStockLevel = await this.stockMovementService.getSaleableStockLevel(ctx, variant);
+        if (quantity > saleableStockLevel) {
+            return new InsufficientStockError(0, order);
         }
+
+        await this.stockMovementService.holdStock(ctx, productVariantId, quantity);
+
         const orderLine = await this.orderModifier.getOrCreateOrderLine(
             ctx,
             order,
             productVariantId,
             customFields,
         );
-        let totalQuantity = correctedQuantity;
+        let totalQuantity = quantity;
         if (existingOrderLine?.quantity) {
             totalQuantity = totalQuantity + existingOrderLine?.quantity;
         }
         await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, totalQuantity, order);
-        const quantityWasAdjustedDown = correctedQuantity < quantity;
-        const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
-        if (quantityWasAdjustedDown) {
-            return new InsufficientStockError(correctedQuantity, updatedOrder);
-        } else {
-            return updatedOrder;
-        }
+        return await this.applyPriceAdjustments(ctx, order, orderLine);
     }
 
     private getProductVariantCustomFields(productVariant: ProductVariant): any {
@@ -600,33 +596,29 @@ export class OrderService {
             return updatedOrder;
         } else {
             // Add quantity
-            const addQuantity = quantity - orderLine.quantity;
+            const addQuantity = quantity - orderLine?.quantity;
             const purchaseLimit = orderLine?.productVariant?.customFields
                 ? Object.entries(orderLine?.productVariant?.customFields)
                       .filter(a => a[0] === 'purchaseLimit')
                       .map(a => a[1])[0]
                 : 0;
             if (purchaseLimit && purchaseLimit > 0) {
-                if (orderLine.quantity + addQuantity > purchaseLimit) {
+                if (orderLine?.quantity + addQuantity > purchaseLimit) {
                     throw new IllegalOperationError(`ExceedPurchaseLimitError ${purchaseLimit}`);
                 }
             }
-            const actualAddQuantity = await this.stockMovementService.holdStock(
+            const saleableStockLevel = await this.stockMovementService.getSaleableStockLevel(
                 ctx,
-                orderLine.productVariant.id,
-                addQuantity,
+                orderLine?.productVariant,
             );
-            if (actualAddQuantity === 0) {
-                return new InsufficientStockError(actualAddQuantity, order);
+            if (addQuantity > saleableStockLevel) {
+                return new InsufficientStockError(0, order);
             }
+
+            await this.stockMovementService.holdStock(ctx, orderLine.productVariant.id, addQuantity);
+
             await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, quantity, order);
-            const quantityWasAdjustedDown = actualAddQuantity < addQuantity;
-            const updatedOrder = await this.applyPriceAdjustments(ctx, order, orderLine);
-            if (quantityWasAdjustedDown) {
-                return new InsufficientStockError(actualAddQuantity, updatedOrder);
-            } else {
-                return updatedOrder;
-            }
+            return await this.applyPriceAdjustments(ctx, order, orderLine);
         }
     }
 
@@ -1196,7 +1188,7 @@ export class OrderService {
         ) {
             for (const line of order.lines) {
                 const items = line.items.filter(i => !i.cancelled);
-                this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+                await this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
             }
             return true;
         } else {
@@ -1418,18 +1410,16 @@ export class OrderService {
             for (const shippingLine of orderToDelete.shippingLines) {
                 await this.connection.getRepository(ctx, ShippingLine).delete(shippingLine.id);
             }
+            for (const line of orderToDelete.lines) {
+                const items = line.items.filter(i => !i.cancelled);
+                await this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+            }
             await this.connection.getRepository(ctx, Order).delete(orderToDelete.id);
         }
-        if (order && linesToInsert) {
+        if (order && linesToDelete) {
             const orderId = order.id;
-            for (const line of linesToInsert) {
-                const result = await this.addItemToOrder(
-                    ctx,
-                    orderId,
-                    line.productVariantId,
-                    line.quantity,
-                    line.customFields,
-                );
+            for (const line of linesToDelete) {
+                const result = await this.removeItemFromOrder(ctx, orderId, line.orderLineId);
                 if (!isGraphQlErrorResult(result)) {
                     order = result;
                 }
@@ -1450,10 +1440,16 @@ export class OrderService {
                 }
             }
         }
-        if (order && linesToDelete) {
+        if (order && linesToInsert) {
             const orderId = order.id;
-            for (const line of linesToDelete) {
-                const result = await this.removeItemFromOrder(ctx, orderId, line.orderLineId);
+            for (const line of linesToInsert) {
+                const result = await this.addItemToOrder(
+                    ctx,
+                    orderId,
+                    line.productVariantId,
+                    line.quantity,
+                    line.customFields,
+                );
                 if (!isGraphQlErrorResult(result)) {
                     order = result;
                 }

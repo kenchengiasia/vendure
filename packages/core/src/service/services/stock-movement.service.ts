@@ -172,13 +172,12 @@ export class StockMovementService {
                   .filter(a => a[0] === 'stockOnHold')
                   .map(a => a[1])[0]
             : 0;
-        const saleableStockLevel = await this.getSaleableStockLevel(ctx, variant);
-        const actualHoldQty = Math.min(holdQty, saleableStockLevel);
-        if (actualHoldQty !== 0) {
-            variant.customFields = { stockOnHold: existingValue + actualHoldQty };
+
+        if (holdQty !== 0) {
+            variant.customFields = { stockOnHold: existingValue + holdQty };
             await this.connection.getRepository(ctx, ProductVariant).save(variant, { reload: true });
         }
-        return actualHoldQty;
+        return holdQty;
     }
 
     async releaseStock(ctx: RequestContext, id: ID, releasedQty: number): Promise<number> {
