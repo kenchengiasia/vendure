@@ -92,21 +92,30 @@ export class StockMovementService {
 
             if (this.trackInventoryForVariant(productVariant, globalTrackInventory)) {
                 productVariant.stockAllocated += line.quantity;
-                const stockOnHold = productVariant?.customFields
-                    ? Object.entries(productVariant.customFields)
-                          .filter(a => a[0] === 'stockOnHold')
+                const holdStock = ctx?.channel?.customFields
+                    ? Object.entries(ctx.channel.customFields)
+                          .filter(a => a[0] === 'holdStock')
                           .map(a => a[1])[0]
-                    : 0;
-                let localStockOnHold;
-                if (line.quantity > stockOnHold) {
-                    localStockOnHold = 0;
-                } else {
-                    localStockOnHold = stockOnHold - line.quantity;
+                    : false;
+
+                if (holdStock) {
+                    const stockOnHold = productVariant?.customFields
+                        ? Object.entries(productVariant.customFields)
+                              .filter(a => a[0] === 'stockOnHold')
+                              .map(a => a[1])[0]
+                        : 0;
+                    let localStockOnHold;
+                    if (line.quantity > stockOnHold) {
+                        localStockOnHold = 0;
+                    } else {
+                        localStockOnHold = stockOnHold - line.quantity;
+                    }
+                    productVariant.customFields = {
+                        ...productVariant.customFields,
+                        stockOnHold: localStockOnHold,
+                    };
                 }
-                productVariant.customFields = {
-                    ...productVariant.customFields,
-                    stockOnHold: localStockOnHold,
-                };
+
                 await this.connection
                     .getRepository(ctx, ProductVariant)
                     .save(productVariant, { reload: false });
@@ -137,12 +146,22 @@ export class StockMovementService {
         const effectiveOutOfStockThreshold = variant.useGlobalOutOfStockThreshold
             ? outOfStockThreshold
             : variant.outOfStockThreshold;
-        const stockOnHold = variant?.customFields
-            ? Object.entries(variant.customFields)
-                  .filter(a => a[0] === 'stockOnHold')
+
+        const holdStock = ctx?.channel?.customFields
+            ? Object.entries(ctx.channel.customFields)
+                  .filter(a => a[0] === 'holdStock')
                   .map(a => a[1])[0]
-            : 0;
-        return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
+            : false;
+        if (holdStock) {
+            const stockOnHold = variant?.customFields
+                ? Object.entries(variant.customFields)
+                      .filter(a => a[0] === 'stockOnHold')
+                      .map(a => a[1])[0]
+                : 0;
+            return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
+        } else {
+            return variant.stockOnHand - variant.stockAllocated - effectiveOutOfStockThreshold;
+        }
     }
 
     async getProductVariantForUpdate(ctx: RequestContext, id: ID): Promise<ProductVariant> {

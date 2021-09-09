@@ -497,9 +497,14 @@ export class OrderService {
         if (quantity > saleableStockLevel) {
             return new InsufficientStockError(0, order);
         }
-
-        await this.stockMovementService.holdStock(ctx, productVariantId, quantity);
-
+        const holdStock = ctx?.channel?.customFields
+            ? Object.entries(ctx.channel.customFields)
+                  .filter(a => a[0] === 'holdStock')
+                  .map(a => a[1])[0]
+            : false;
+        if (holdStock) {
+            await this.stockMovementService.holdStock(ctx, productVariantId, quantity);
+        }
         const orderLine = await this.orderModifier.getOrCreateOrderLine(
             ctx,
             order,
@@ -580,11 +585,18 @@ export class OrderService {
         if (orderLine.quantity > quantity) {
             // Reduce quantity
             const reduceQty = orderLine.quantity - quantity;
-            const actualReduceQuantity = await this.stockMovementService.releaseStock(
-                ctx,
-                orderLine.productVariant.id,
-                orderLine.quantity - quantity,
-            );
+            const holdStock = ctx?.channel?.customFields
+                ? Object.entries(ctx.channel.customFields)
+                      .filter(a => a[0] === 'holdStock')
+                      .map(a => a[1])[0]
+                : false;
+            if (holdStock) {
+                const actualReduceQuantity = await this.stockMovementService.releaseStock(
+                    ctx,
+                    orderLine.productVariant.id,
+                    orderLine.quantity - quantity,
+                );
+            }
             if (quantity === 0) {
                 order.lines = order.lines.filter(l => !idsAreEqual(l.id, orderLine.id));
                 await this.connection.getRepository(ctx, OrderLine).remove(orderLine);
@@ -614,9 +626,14 @@ export class OrderService {
             if (addQuantity > saleableStockLevel) {
                 return new InsufficientStockError(0, order);
             }
-
-            await this.stockMovementService.holdStock(ctx, orderLine.productVariant.id, addQuantity);
-
+            const holdStock = ctx?.channel?.customFields
+                ? Object.entries(ctx.channel.customFields)
+                      .filter(a => a[0] === 'holdStock')
+                      .map(a => a[1])[0]
+                : false;
+            if (holdStock) {
+                await this.stockMovementService.holdStock(ctx, orderLine.productVariant.id, addQuantity);
+            }
             await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, quantity, order);
             return await this.applyPriceAdjustments(ctx, order, orderLine);
         }
@@ -638,7 +655,14 @@ export class OrderService {
         const orderLineQty = orderLine.quantity;
         const variantId = orderLine.productVariant.id;
         await this.connection.getRepository(ctx, OrderLine).remove(orderLine);
-        await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
+        const holdStock = ctx?.channel?.customFields
+            ? Object.entries(ctx.channel.customFields)
+                  .filter(a => a[0] === 'holdStock')
+                  .map(a => a[1])[0]
+            : false;
+        if (holdStock) {
+            await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
+        }
         return updatedOrder;
     }
 
@@ -652,10 +676,17 @@ export class OrderService {
             return validationError;
         }
         await this.connection.getRepository(ctx, OrderLine).remove(order.lines);
-        for (const orderLine of order.lines) {
-            const orderLineQty = orderLine.quantity;
-            const variantId = orderLine.productVariant.id;
-            await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
+        const holdStock = ctx?.channel?.customFields
+            ? Object.entries(ctx.channel.customFields)
+                  .filter(a => a[0] === 'holdStock')
+                  .map(a => a[1])[0]
+            : false;
+        if (holdStock) {
+            for (const orderLine of order.lines) {
+                const orderLineQty = orderLine.quantity;
+                const variantId = orderLine.productVariant.id;
+                await this.stockMovementService.releaseStock(ctx, variantId, orderLineQty);
+            }
         }
         order.lines = [];
         const updatedOrder = await this.applyPriceAdjustments(ctx, order);
@@ -1186,9 +1217,16 @@ export class OrderService {
             order.state === 'ArrangingPayment' ||
             order.state === ('ValidatingPayment' as any)
         ) {
-            for (const line of order.lines) {
-                const items = line.items.filter(i => !i.cancelled);
-                await this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+            const holdStock = ctx?.channel?.customFields
+                ? Object.entries(ctx.channel.customFields)
+                      .filter(a => a[0] === 'holdStock')
+                      .map(a => a[1])[0]
+                : false;
+            if (holdStock) {
+                for (const line of order.lines) {
+                    const items = line.items.filter(i => !i.cancelled);
+                    await this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+                }
             }
             return true;
         } else {
@@ -1410,9 +1448,16 @@ export class OrderService {
             for (const shippingLine of orderToDelete.shippingLines) {
                 await this.connection.getRepository(ctx, ShippingLine).delete(shippingLine.id);
             }
-            for (const line of orderToDelete.lines) {
-                const items = line.items.filter(i => !i.cancelled);
-                await this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+            const holdStock = ctx?.channel?.customFields
+                ? Object.entries(ctx.channel.customFields)
+                      .filter(a => a[0] === 'holdStock')
+                      .map(a => a[1])[0]
+                : false;
+            if (holdStock) {
+                for (const line of orderToDelete.lines) {
+                    const items = line.items.filter(i => !i.cancelled);
+                    await this.stockMovementService.releaseStock(ctx, line.productVariant.id, items.length);
+                }
             }
             await this.connection.getRepository(ctx, Order).delete(orderToDelete.id);
         }

@@ -272,12 +272,23 @@ export class ProductVariantService {
         const effectiveOutOfStockThreshold = variant.useGlobalOutOfStockThreshold
             ? outOfStockThreshold
             : variant.outOfStockThreshold;
-        let stockOnHold = variant?.customFields
-            ? Object.entries(variant.customFields)
-                  .filter(a => a[0] === 'stockOnHold')
+
+        const holdStock = ctx?.channel?.customFields
+            ? Object.entries(ctx.channel.customFields)
+                  .filter(a => a[0] === 'holdStock')
                   .map(a => a[1])[0]
-            : 0;
-        return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
+            : false;
+
+        if (holdStock) {
+            let stockOnHold = variant?.customFields
+                ? Object.entries(variant.customFields)
+                      .filter(a => a[0] === 'stockOnHold')
+                      .map(a => a[1])[0]
+                : 0;
+            return variant.stockOnHand - stockOnHold - variant.stockAllocated - effectiveOutOfStockThreshold;
+        } else {
+            return variant.stockOnHand - variant.stockAllocated - effectiveOutOfStockThreshold;
+        }
     }
 
     /**
