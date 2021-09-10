@@ -399,100 +399,7 @@ export class OrderService {
         if (variant.product.enabled === false) {
             throw new EntityNotFoundError('ProductVariant', productVariantId);
         }
-        const purchaseLimit = variant?.customFields
-            ? Object.entries(variant.customFields)
-                  .filter(a => a[0] === 'purchaseLimit')
-                  .map(a => a[1])[0]
-            : 0;
-        if (purchaseLimit && purchaseLimit > 0) {
-            if (existingOrderLine) {
-                if (existingOrderLine.quantity + quantity > purchaseLimit) {
-                    throw new IllegalOperationError(`ExceedPurchaseLimitError ${purchaseLimit}`);
-                }
-            } else {
-                if (quantity > purchaseLimit) {
-                    throw new IllegalOperationError(`ExceedPurchaseLimitError ${purchaseLimit}`);
-                }
-            }
-        }
 
-        let {
-            collectDayFrom,
-            collectPeriod,
-            collectTimeFrom,
-            collectTimeTo,
-        } = this.getProductVariantCustomFields(variant);
-        if (!collectDayFrom) {
-            collectDayFrom = moment(new Date()).format('YYYYMMDD');
-        }
-        const collectDayFromDate = moment(collectDayFrom, 'YYYYMMDD');
-        for (const line of order.lines) {
-            if (line.productVariant.id !== productVariantId) {
-                let {
-                    collectDayFrom: eachCollectDayFrom,
-                    collectPeriod: eachCollectPeriod,
-                    collectTimeFrom: eachCollectTimeFrom,
-                    collectTimeTo: eachCollectTimeTo,
-                } = this.getProductVariantCustomFields(line.productVariant);
-                if (!eachCollectDayFrom) {
-                    eachCollectDayFrom = moment(new Date()).format('YYYYMMDD');
-                }
-                if (collectDayFromDate.isAfter(eachCollectDayFrom)) {
-                    const eachCollectDayFromDate = moment(eachCollectDayFrom, 'YYYYMMDD');
-                    if (eachCollectDayFromDate.add(eachCollectPeriod, 'days').isBefore(collectDayFromDate)) {
-                        throw new IllegalOperationError(
-                            `CollectPeriodConflictError ${line.productVariant.name}`,
-                        );
-                    }
-                } else if (collectDayFromDate.isBefore(eachCollectDayFrom)) {
-                    if (collectDayFromDate.add(collectPeriod, 'days').isBefore(eachCollectDayFrom)) {
-                        throw new IllegalOperationError(
-                            `CollectPeriodConflictError ${line.productVariant.name}`,
-                        );
-                    }
-                }
-
-                if (collectTimeFrom) {
-                    if (eachCollectTimeTo) {
-                        const fromHour = parseInt(collectTimeFrom.substring(0, 2));
-                        const toHour = parseInt(eachCollectTimeTo.substring(0, 2));
-                        const fromMinute = parseInt(collectTimeFrom.substring(2, 4));
-                        const toMinute = parseInt(eachCollectTimeTo.substring(2, 4));
-                        if (fromHour > toHour) {
-                            throw new IllegalOperationError(
-                                `CollectPeriodConflictError ${line.productVariant.name}`,
-                            );
-                        } else if (fromHour == toHour) {
-                            if (fromMinute > toMinute) {
-                                throw new IllegalOperationError(
-                                    `CollectPeriodConflictError ${line.productVariant.name}`,
-                                );
-                            }
-                        }
-                    }
-                }
-
-                if (collectTimeTo) {
-                    if (eachCollectTimeFrom) {
-                        const fromHour = parseInt(eachCollectTimeFrom.substring(0, 2));
-                        const toHour = parseInt(collectTimeTo.substring(0, 2));
-                        const fromMinute = parseInt(eachCollectTimeFrom.substring(2, 4));
-                        const toMinute = parseInt(collectTimeTo.substring(2, 4));
-                        if (toHour < fromHour) {
-                            throw new IllegalOperationError(
-                                `CollectPeriodConflictError ${line.productVariant.name}`,
-                            );
-                        } else if (toHour == fromHour) {
-                            if (toMinute < fromMinute) {
-                                throw new IllegalOperationError(
-                                    `CollectPeriodConflictError ${line.productVariant.name}`,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
         const saleableStockLevel = await this.stockMovementService.getSaleableStockLevel(ctx, variant);
         if (quantity > saleableStockLevel) {
             return new InsufficientStockError(0, order);
@@ -517,35 +424,6 @@ export class OrderService {
         }
         await this.orderModifier.updateOrderLineQuantity(ctx, orderLine, totalQuantity, order);
         return await this.applyPriceAdjustments(ctx, order, orderLine);
-    }
-
-    private getProductVariantCustomFields(productVariant: ProductVariant): any {
-        const collectDayFrom = productVariant?.customFields
-            ? Object.entries(productVariant.customFields)
-                  .filter(a => a[0] === 'collectDayFrom')
-                  .map(a => a[1])[0]
-            : '';
-        const collectPeriod = productVariant?.customFields
-            ? Object.entries(productVariant.customFields)
-                  .filter(a => a[0] === 'collectPeriod')
-                  .map(a => a[1])[0]
-            : 0;
-        const collectTimeFrom = productVariant?.customFields
-            ? Object.entries(productVariant.customFields)
-                  .filter(a => a[0] === 'collectTimeFrom')
-                  .map(a => a[1])[0]
-            : '';
-        const collectTimeTo = productVariant?.customFields
-            ? Object.entries(productVariant.customFields)
-                  .filter(a => a[0] === 'collectTimeTo')
-                  .map(a => a[1])[0]
-            : '';
-        return {
-            collectDayFrom,
-            collectPeriod,
-            collectTimeFrom,
-            collectTimeTo,
-        };
     }
 
     /**
@@ -609,16 +487,6 @@ export class OrderService {
         } else {
             // Add quantity
             const addQuantity = quantity - orderLine?.quantity;
-            const purchaseLimit = orderLine?.productVariant?.customFields
-                ? Object.entries(orderLine?.productVariant?.customFields)
-                      .filter(a => a[0] === 'purchaseLimit')
-                      .map(a => a[1])[0]
-                : 0;
-            if (purchaseLimit && purchaseLimit > 0) {
-                if (orderLine?.quantity + addQuantity > purchaseLimit) {
-                    throw new IllegalOperationError(`ExceedPurchaseLimitError ${purchaseLimit}`);
-                }
-            }
             const saleableStockLevel = await this.stockMovementService.getSaleableStockLevel(
                 ctx,
                 orderLine?.productVariant,
