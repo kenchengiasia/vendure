@@ -82,7 +82,11 @@ export class StockMovementService {
         const allocations: Allocation[] = [];
         const globalTrackInventory = (await this.globalSettingsService.getSettings(ctx)).trackInventory;
         for (const line of order.lines) {
-            const { productVariant } = line;
+            const productVariant = await this.connection.getEntityOrThrow(
+                ctx,
+                ProductVariant,
+                line.productVariant.id,
+            );
             const allocation = new Allocation({
                 productVariant,
                 quantity: line.quantity,
@@ -242,7 +246,11 @@ export class StockMovementService {
             value.items.push(orderItem);
         }
         for (const lineRow of orderLinesMap.values()) {
-            const { productVariant } = lineRow.line;
+            const productVariant = await this.connection.getEntityOrThrow(
+                ctx,
+                ProductVariant,
+                lineRow.line.productVariant.id,
+            );
             const sale = new Sale({
                 productVariant,
                 quantity: lineRow.items.length * -1,

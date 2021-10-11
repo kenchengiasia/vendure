@@ -72,7 +72,7 @@ export interface ApiOptions {
     adminApiPath?: string;
     /**
      * @description
-     * The path to the admin GraphQL API.
+     * The path to the shop GraphQL API.
      *
      * @default 'shop-api'
      */
@@ -103,7 +103,7 @@ export interface ApiOptions {
     adminApiDebug?: boolean;
     /**
      * @description
-     * The debug config to the admin GraphQL API
+     * The debug config to the shop GraphQL API
      * [ApolloServer playground](https://www.apollographql.com/docs/apollo-server/api/apollo-server/#constructoroptions-apolloserver).
      *
      * @default false
@@ -296,9 +296,11 @@ export interface AuthOptions {
      * `authTokenHeaderKey` in the server's CORS configuration (adding `Access-Control-Expose-Headers: vendure-auth-token`
      * by default).
      *
+     * From v1.2.0 is is possible to specify both methods as a tuple: `['cookie', 'bearer']`.
+     *
      * @default 'cookie'
      */
-    tokenMethod?: 'cookie' | 'bearer';
+    tokenMethod?: 'cookie' | 'bearer' | ReadonlyArray<'cookie' | 'bearer'>;
     /**
      * @description
      * Options related to the handling of cookies when using the 'cookie' tokenMethod.
@@ -348,7 +350,7 @@ export interface AuthOptions {
      * `password` property - doing so will result in an error. Instead, the password is set at a later stage
      * (once the email with the verification token has been opened) via the `verifyCustomerAccount` mutation.
      *
-     * @defaut true
+     * @default true
      */
     requireVerification?: boolean;
     /**
@@ -565,7 +567,7 @@ export interface CatalogOptions {
      *
      * @default defaultCollectionFilters
      */
-    collectionFilters: Array<CollectionFilter<any>>;
+    collectionFilters?: Array<CollectionFilter<any>>;
     /**
      * @description
      * Defines the strategy used for calculating the price of ProductVariants based
@@ -573,7 +575,7 @@ export interface CatalogOptions {
      *
      * @default DefaultTaxCalculationStrategy
      */
-    productVariantPriceCalculationStrategy: ProductVariantPriceCalculationStrategy;
+    productVariantPriceCalculationStrategy?: ProductVariantPriceCalculationStrategy;
     /**
      * @description
      * Defines how the `ProductVariant.stockLevel` value is obtained. It is usually not desirable
@@ -585,7 +587,7 @@ export interface CatalogOptions {
      *
      * @default DefaultStockDisplayStrategy
      */
-    stockDisplayStrategy: StockDisplayStrategy;
+    stockDisplayStrategy?: StockDisplayStrategy;
 }
 
 /**
@@ -875,6 +877,7 @@ export interface RuntimeVendureConfig extends Required<VendureConfig> {
     apiOptions: Required<ApiOptions>;
     assetOptions: Required<AssetOptions>;
     authOptions: Required<AuthOptions>;
+    catalogOptions: Required<CatalogOptions>;
     customFields: Required<CustomFields>;
     importExportOptions: Required<ImportExportOptions>;
     jobQueueOptions: Required<JobQueueOptions>;
