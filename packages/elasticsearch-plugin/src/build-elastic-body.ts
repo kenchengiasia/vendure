@@ -112,6 +112,18 @@ export function buildElasticBody(
             const priceField = groupByProduct ? 'priceMin' : 'price';
             sortArray.push({ [priceField]: { order: sort.price === SortOrder.ASC ? 'asc' : 'desc' } });
         }
+        if ((sort as any).listedPrice) {
+            sortArray.push({
+                listedPrice: {
+                    order: (sort as any).listedPrice === SortOrder.ASC ? 'asc' : 'desc',
+                },
+            });
+        }
+        if ((sort as any).updatedAt) {
+            sortArray.push({
+                'updatedAt.keyword': { order: (sort as any).updatedAt === SortOrder.ASC ? 'asc' : 'desc' },
+            });
+        }
     }
     return {
         query: searchConfig.mapQuery
