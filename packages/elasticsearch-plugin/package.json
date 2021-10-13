@@ -1,6 +1,6 @@
 {
     "name": "@iasiakencheng/vendure-elasticsearch-plugin",
-    "version": "1.2.3",
+    "version": "1.2.3-rc1",
     "license": "MIT",
     "main": "lib/index.js",
     "types": "lib/index.d.ts",

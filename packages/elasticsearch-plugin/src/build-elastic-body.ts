@@ -119,9 +119,9 @@ export function buildElasticBody(
                 },
             });
         }
-        if ((sort as any).updatedAt) {
+        if ((sort as any).publishAt) {
             sortArray.push({
-                'updatedAt.keyword': { order: (sort as any).updatedAt === SortOrder.ASC ? 'asc' : 'desc' },
+                'publishAt.keyword': { order: (sort as any).publishAt === SortOrder.ASC ? 'asc' : 'desc' },
             });
         }
     }
